@@ -2,12 +2,15 @@ from bs4 import BeautifulSoup
 import requests
 import networkx as nx
 import matplotlib.pyplot as plt
+import numpy as np
+import copy
 
-BASE_URL = "https://overthewire.org/wargames/"
-URL2 = "https://www.miauk.com/"
 URL3 = "https://arngren.net/"
 all_links = set()
 global_links = dict()
+matrix = []
+ans = []
+d = 0
 
 
 def get_html(url: str) -> bytes:
@@ -24,14 +27,14 @@ def get_html(url: str) -> bytes:
 
 def find_links(html: bytes) -> [str]:
     soup = BeautifulSoup(html, "html.parser")
-    links = []
+    l = []
 
     items = soup.find_all('a')
 
     for item in items:
-        links.append(item.get("href"))
+        l.append(item.get("href"))
 
-    return links
+    return l
 
 
 def find_link_base(url: str) -> (str, str):
@@ -44,50 +47,99 @@ def find_link_base(url: str) -> (str, str):
     return url, ""
 
 
-def run_cycle(base: str, page: str):
-    if page != "" and page[0] != "/":
-        page = "/" + page
-    html = get_html(base + page)
-    links = find_links(html)
+def run_cycle(url_base: str, page: str):
+    if url_base[-1] != "/":
+        url_base = url_base + "/"
+    if page != "" and page[0] == "/":
+        page[0] = ""
+
+    html = get_html(url_base + page)
+    l = find_links(html)
+
+    for i in range(0, len(l)):
+        if len(l[i]) > 4:
+            if l[i][:4] == "http" or l[i].find("@") != -1:
+                l[i] = ""
+
+    global_links[page] = l.copy()
 
     try:
-        links.remove(page)
+        l.remove(page)
     except ValueError:
         pass
+    return l
 
-    for i in range(0, len(links)):
-        if len(links[i]) > 4:
-            if links[i][:4] == "http" or links[i].find("email-protection") != -1:
-                links[i] = ""
-    return links
+
+def calculate_pg():
+    for page in global_links.keys():
+        row = []
+        for l in all_links:
+            if l in global_links[page]:
+                if len(global_links[l]) == 0:
+                    row.append(0)
+                else:
+                    row.append(1 / len(global_links[l]))
+
+        matrix.append(row)
+
+    return jacob(matrix)
+
+
+def jacob(_matrix):
+    x = [1 for _ in range(len(_matrix))]
+    prev_x = []
+    while True:
+        if prev_x != [] and min([x[i]-prev_x[i] for i in range(len(x))]) < 0.001:
+            break
+        prev_x = x.copy()
+        for row in range(len(_matrix)):
+            x[row] = 0
+
+            for column in range(len(_matrix[row])):
+                x[row] += prev_x[row] * _matrix[row][column]
+
+            x[row] *= d
+            x[row] += 1-d
+
+        print(x)
+    return x
 
 
 if __name__ == '__main__':
-    base, default_page = find_link_base(URL3)
+    url = input("Input url (blank for {0}): ".format(URL3))
+    if url == "":
+        url = URL3
 
-    new_links = set()
+    d = float(input("Input d: "))
+
+    base, default_page = find_link_base(url)
 
     links = run_cycle(base, default_page)
     all_links = all_links.union(links)  # for graph building
-    global_links[default_page] = links
-
     flag = False
 
     unprocessed_links = all_links.copy()
 
     while True:
-        if flag and len(new_links) == 0:
+        if flag and len(unprocessed_links) == 0:
             break
+
+        new_links = set()
 
         for link in unprocessed_links:
             links = run_cycle(base, link)
-            new_links = set(links).difference(all_links)
+            new_links = new_links.union(set(links).difference(all_links))
             all_links = all_links.union(links)  # for graph building
-            global_links[link] = links
             flag = True
 
         unprocessed_links = new_links.copy()
 
+    a = calculate_pg()
+    keys = list(global_links.keys())
+    for i in range(len(a)):
+        print("P({0}) = {1}".format(keys[i], a[i]))
+
+    # graph
     graph = nx.Graph()
     edges = []
 
